@@ -64,6 +64,7 @@ extern uint8_t scratchpad[9];
 extern uint8_t blink;
 extern uint8_t convert;
 extern uint8_t rom[8];
+extern uint8_t need_command_call;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -242,8 +243,8 @@ void TIM2_IRQHandler(void)
   /* USER CODE END TIM2_IRQn 0 */
   HAL_TIM_IRQHandler(&htim2);
   /* USER CODE BEGIN TIM2_IRQn 1 */
-
-  float temp = DS18B20_TempFloat(scratchpad);
+  need_command_call = 0xff;
+  /*float temp = DS18B20_TempFloat(scratchpad);
 
   char buf[8];
   sprintf(buf, "%2.1f", temp);
@@ -258,6 +259,11 @@ void TIM2_IRQHandler(void)
 		  OneWire_Execute(0xcc,0,0xbe,scratchpad); // start to read configuration & result
 	  convert = ~convert;
   }
+
+  if (OneWire_GetState() != 0) {
+	  OneWire_RxCpltCallback();
+  }*/
+
   /* USER CODE END TIM2_IRQn 1 */
 }
 

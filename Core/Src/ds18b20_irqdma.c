@@ -1,6 +1,26 @@
 #include "ds18b20_irqdma.h"
 #include <string.h>
 
+void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 15, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 15, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+
+}
+
+extern DMA_HandleTypeDef hdma_usart1_tx;
+extern DMA_HandleTypeDef hdma_usart1_rx;
+extern uint8_t need_statemachine_call;
+
 typedef struct {
     uint8_t Reset;              //Communication Phase 1: Reset
     uint8_t ROM_Command;        //Communication Phase 2: Rom command
@@ -57,26 +77,32 @@ void OneWire_TxCpltCallback(){
 }
 
 void OneWire_RxCpltCallback(){
-    StateMachine();
+    //StateMachine();
+	need_statemachine_call = 0xff;
 }
 
 void StateMachine(){
     switch (state.Reset){
         case 0: // start the reset produce;
+        	while ((hdma_usart1_tx.State != HAL_DMA_STATE_READY) && (hdma_usart1_rx.State != HAL_DMA_STATE_READY)
+        			&& (huart_ow->RxState != HAL_UART_STATE_READY)) {}
+        	HAL_Delay(50);
+        	//MX_DMA_Init();
             OneWire_UARTInit(9600, huart_ow);
             internal_Buffer[0]=0xf0;
             HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),1);
-            HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),1);
-            HAL_Delay(100);
+            //HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),1);
             state.Reset++;
   	    break;
         case 1: // to check if the device exist or not.
-        	if (internal_Buffer[0]==0xf0)
-            {
-	    		onewire_callback.OnErr();
-	    		state.Reset = 0;
-                break;
-            }
+        	while ((hdma_usart1_tx.State != HAL_DMA_STATE_READY) && (hdma_usart1_rx.State != HAL_DMA_STATE_READY)
+        	        			&& (huart_ow->RxState != HAL_UART_STATE_READY))
+        	//if (internal_Buffer[0]==0xf0)
+        	//{
+	    	//	onewire_callback.OnErr();
+	    	//	state.Reset = 0;
+            //    break;
+            //}
             state.Reset++;
         case 2:
             if (ROMStateMachine()==0)
@@ -97,20 +123,24 @@ void StateMachine(){
 uint8_t ROMStateMachine(void){
     switch(state.ROM){
         case 0: // start the ROM command by sending the ROM_Command
+            while ((hdma_usart1_tx.State != HAL_DMA_STATE_READY) && (hdma_usart1_rx.State != HAL_DMA_STATE_READY)
+            	&& (huart_ow->RxState != HAL_UART_STATE_READY)) {}
+            HAL_Delay(50);
+        	//MX_DMA_Init();
             OneWire_UARTInit(115200, huart_ow);
             for (uint8_t i=0;i<8;i++)
                 internal_Buffer[i]=((state.ROM_Command>>i)&0x01)?0xff:0x00;
             HAL_UART_Transmit_DMA(huart_ow,internal_Buffer,8);
-            HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),8);
+            //HAL_UART_Receive_DMA(huart_ow,internal_Buffer,8);
             state.ROM++;
-//            if (state.ROM_Command != 0xcc)
+            if (state.ROM_Command != 0xcc)
             break;
         case 1: // continue by sending necessary Tx buffer
             if (state.ROM_TxCount!=0){
                 for (uint8_t i=0;i<state.ROM_TxCount;i++)
                     for (uint8_t j=0;j<8;j++)
                         internal_Buffer[i*8+j]=((state.ROM_TxBuffer[i]>>j)&0x01)?0xff:0x00;
-                HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),state.ROM_TxCount*8);
+                HAL_UART_Transmit_DMA(huart_ow,internal_Buffer,state.ROM_TxCount*8);
                 //HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),state.ROM_TxCount*8);
                 state.ROM++;
                 break;
@@ -119,7 +149,7 @@ uint8_t ROMStateMachine(void){
                 for (uint8_t i=0;i<=state.ROM_RxCount*8;i++)
                     internal_Buffer[i]=0xff;
                 //HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),state.ROM_RxCount*8);
-                HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),state.ROM_RxCount*8);
+                HAL_UART_Receive_DMA(huart_ow,internal_Buffer,state.ROM_RxCount*8);
                 state.ROM++;
                 break;
             }
@@ -143,8 +173,8 @@ uint8_t FunctionStateMachine(void){
             OneWire_UARTInit(115200, huart_ow);
             for (uint8_t i=0;i<8;i++)
                 internal_Buffer[i]=((state.Function_Command>>i)&0x01)?0xff:0x00;
-            HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),8);
-            HAL_UART_Receive_DMA(huart_ow, &(internal_Buffer[0]),8);
+            HAL_UART_Transmit_DMA(huart_ow,internal_Buffer,8);
+            HAL_UART_Receive_DMA(huart_ow, internal_Buffer,8);
             state.Function++;
 //            if (state.Function_TxCount != 0)
             break;
@@ -153,16 +183,16 @@ uint8_t FunctionStateMachine(void){
                 for (uint8_t i=0;i<state.Function_TxCount;i++)
                     for (uint8_t j=0;j<8;j++)
                         internal_Buffer[i*8+j]=((state.Function_TxBuffer[i]>>j)&0x01)?0xff:0x00;
-                HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),state.Function_TxCount*8);
-                //HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),state.Function_TxCount*8);
+                HAL_UART_Transmit_DMA(huart_ow,internal_Buffer,state.Function_TxCount*8);
+                HAL_UART_Receive_DMA(huart_ow,internal_Buffer,state.Function_TxCount*8);
                 state.Function++;
                 break;
             }
             if (state.Function_RxCount!=0){
                 for (uint8_t i=0;i<=state.Function_RxCount*8;i++)
                     internal_Buffer[i]=0xff;
-                //HAL_UART_Transmit_DMA(huart_ow,&(internal_Buffer[0]),8);//state.Function_RxCount*8);
-                HAL_UART_Receive_DMA(huart_ow,&(internal_Buffer[0]),state.Function_RxCount*8);
+                HAL_UART_Transmit_DMA(huart_ow,internal_Buffer,8);//state.Function_RxCount*8);
+                HAL_UART_Receive_DMA(huart_ow,internal_Buffer,state.Function_RxCount*8);
                 state.Function++;
                 break;
             }

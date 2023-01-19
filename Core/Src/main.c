@@ -52,6 +52,8 @@ uint8_t scratchpad[9];
 uint8_t rom[8];
 uint8_t blink = 0;
 uint8_t convert = 0xFF;
+uint8_t need_statemachine_call = 0;
+uint8_t need_command_call = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -182,6 +184,29 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	if (need_statemachine_call) {
+		StateMachine();
+		need_statemachine_call = ~need_statemachine_call;
+	}
+
+	if (need_command_call) {
+		float temp = DS18B20_TempFloat(scratchpad);
+
+		char buf[8];
+		sprintf(buf, "%2.1f", temp);
+		ssd1306_SetCursor(0, 20);
+		ssd1306_WriteString(buf, Font_7x10, White);
+		//ssd1306_UpdateScreen();
+
+		if (OneWire_GetState() == 0) {
+			if (convert)
+				OneWire_Execute(0xcc,0,0x44,rom); // start to Convert T
+			else
+				OneWire_Execute(0xcc,0,0xbe,scratchpad); // start to read configuration & result
+			convert = ~convert;
+		}
+		need_command_call = 0;
+	}
 	//HAL_SuspendTick();
 	//HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
   }
@@ -357,10 +382,10 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Channel4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 15, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
   /* DMA1_Channel5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 15, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
